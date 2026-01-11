@@ -1,0 +1,45 @@
+# Cloudflare Tunnel Configuration for Vending Payment Server
+#
+# This file should be placed at: ~/.cloudflared/config.yml
+#
+# Before using this config:
+# 1. Replace YOUR-TUNNEL-ID with your actual tunnel ID
+# 2. Replace YOUR-DOMAIN with your actual domain
+# 3. Update the credentials-file path with your tunnel ID
+#
+# To get your tunnel ID:
+#   cloudflared tunnel list
+
+tunnel: YOUR-TUNNEL-ID
+credentials-file: /home/pi/.cloudflared/YOUR-TUNNEL-ID.json
+
+# Ingress rules - routes traffic to your services
+ingress:
+  # Route your domain to the FastAPI server
+  - hostname: YOUR-DOMAIN.com
+    service: http://localhost:8000
+    originRequest:
+      # Disable TLS verification for local connection
+      noTLSVerify: true
+      # Connection settings
+      connectTimeout: 30s
+      # Keep-alive settings
+      keepAliveConnections: 10
+      keepAliveTimeout: 90s
+  
+  # Optional: Route a subdomain for webhooks specifically
+  # - hostname: webhooks.YOUR-DOMAIN.com
+  #   service: http://localhost:8000
+  #   originRequest:
+  #     noTLSVerify: true
+  
+  # Catch-all rule (required) - returns 404 for unmatched requests
+  - service: http_status:404
+
+# Optional: Logging configuration
+# loglevel: info
+# logfile: /var/log/cloudflared.log
+
+# Optional: Metrics server (for monitoring)
+# metrics: localhost:9090
+
