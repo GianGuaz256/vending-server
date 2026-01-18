@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Simple payment flow test script for Raspberry Pi
-Tests authentication and payment creation without requiring full pytest setup
+Simple payment flow test script
+Tests authentication and payment creation
 """
 
 import sys
@@ -9,11 +9,12 @@ import os
 import httpx
 from decimal import Decimal
 import time
+import argparse
 
-# Configuration - adjust these for your setup
-SERVER_URL = os.getenv("SERVER_URL", "http://localhost:8000")
-MACHINE_ID = os.getenv("MACHINE_ID", "KIOSK-001")
-PASSWORD = os.getenv("PASSWORD", "secret123")
+# Default configuration
+DEFAULT_SERVER_URL = "http://localhost:8000"
+DEFAULT_MACHINE_ID = "KIOSK-001"
+DEFAULT_PASSWORD = "secret123"
 
 def print_header(text):
     """Print a formatted header."""
@@ -29,11 +30,11 @@ def print_error(text):
     """Print error message."""
     print(f"✗ {text}")
 
-def test_health_check(client):
+def test_health_check(client, server_url):
     """Test server health check."""
     print_header("1. Testing Health Check")
     try:
-        response = client.get(f"{SERVER_URL}/health")
+        response = client.get(f"{server_url}/health")
         response.raise_for_status()
         data = response.json()
         print_success(f"Health check passed: {data}")
@@ -42,15 +43,15 @@ def test_health_check(client):
         print_error(f"Health check failed: {e}")
         return False
 
-def test_authentication(client):
+def test_authentication(client, server_url, machine_id, password):
     """Test authentication and return token."""
     print_header("2. Testing Authentication")
     try:
         response = client.post(
-            f"{SERVER_URL}/api/v1/auth/token",
+            f"{server_url}/api/v1/auth/token",
             json={
-                "machine_id": MACHINE_ID,
-                "password": PASSWORD,
+                "machine_id": machine_id,
+                "password": password,
                 "device_info": {
                     "client": "test_raspberry_payment.py",
                     "version": "1.0.0",
@@ -70,23 +71,23 @@ def test_authentication(client):
         print_error(f"Authentication error: {e}")
         return None
 
-def test_payment_creation(client, token):
+def test_payment_creation(client, server_url, token):
     """Test payment creation."""
     print_header("3. Testing Payment Creation")
     try:
         external_code = f"TEST-{int(time.time())}"
         response = client.post(
-            f"{SERVER_URL}/api/v1/payments",
+            f"{server_url}/api/v1/payments",
             headers={"Authorization": f"Bearer {token}"},
             json={
                 "payment_method": "BTC_LN",
                 "amount": "1.00",
                 "currency": "EUR",
                 "external_code": external_code,
-                "description": "Test payment from Raspberry Pi",
+                "description": "Test payment",
                 "metadata": {
                     "test": True,
-                    "source": "raspberry_pi",
+                    "source": "test_script",
                 },
             },
         )
@@ -116,12 +117,12 @@ def test_payment_creation(client, token):
         print_error(f"Payment creation error: {e}")
         return None
 
-def test_payment_status(client, token, payment_id):
+def test_payment_status(client, server_url, token, payment_id):
     """Test payment status retrieval."""
     print_header("4. Testing Payment Status Retrieval")
     try:
         response = client.get(
-            f"{SERVER_URL}/api/v1/payments/{payment_id}",
+            f"{server_url}/api/v1/payments/{payment_id}",
             headers={"Authorization": f"Bearer {token}"},
         )
         response.raise_for_status()
@@ -141,33 +142,47 @@ def test_payment_status(client, token, payment_id):
 
 def main():
     """Run all tests."""
+    parser = argparse.ArgumentParser(description="Test payment flow")
+    parser.add_argument("--server-url", default=DEFAULT_SERVER_URL, help="Server URL")
+    parser.add_argument("--machine-id", default=DEFAULT_MACHINE_ID, help="Machine ID")
+    parser.add_argument("--password", default=DEFAULT_PASSWORD, help="Password")
+    args = parser.parse_args()
+    
     print("\n" + "=" * 60)
-    print("  Raspberry Pi Payment Flow Test")
+    print("  Payment Flow Test")
     print("=" * 60)
     print(f"\nConfiguration:")
-    print(f"  Server URL: {SERVER_URL}")
-    print(f"  Machine ID: {MACHINE_ID}")
-    print(f"  Password: {'*' * len(PASSWORD)}")
+    print(f"  Server URL: {args.server_url}")
+    print(f"  Machine ID: {args.machine_id}")
+    print(f"  Password: {'*' * len(args.password)}")
     
     client = httpx.Client(timeout=30.0)
     
     try:
         # Run tests
-        if not test_health_check(client):
+        if not test_health_check(client, args.server_url):
             print_error("\nHealth check failed. Is the server running?")
+            print("\nTo start the server:")
+            print("  1. Start Docker: docker compose up -d")
+            print("  OR")
+            print("  2. Start manually:")
+            print("     Terminal 1: uvicorn app.main:app --reload")
+            print("     Terminal 2: celery -A app.worker.celery_app worker --loglevel=info")
             sys.exit(1)
         
-        token = test_authentication(client)
+        token = test_authentication(client, args.server_url, args.machine_id, args.password)
         if not token:
             print_error("\nAuthentication failed. Check your credentials.")
+            print("\nTo create a client:")
+            print(f"  python scripts/create_client.py --machine-id {args.machine_id} --password {args.password}")
             sys.exit(1)
         
-        payment_id = test_payment_creation(client, token)
+        payment_id = test_payment_creation(client, args.server_url, token)
         if not payment_id:
             print_error("\nPayment creation failed.")
             sys.exit(1)
         
-        if not test_payment_status(client, token, payment_id):
+        if not test_payment_status(client, args.server_url, token, payment_id):
             print_error("\nPayment status retrieval failed.")
             sys.exit(1)
         
@@ -178,7 +193,7 @@ def main():
         print("  1. The payment invoice has been created")
         print("  2. You can now test paying it with a Lightning wallet")
         print("  3. Use the client demo for interactive testing:")
-        print(f"     python scripts/client_demo.py --server-url {SERVER_URL} --machine-id {MACHINE_ID} --password {PASSWORD}")
+        print(f"     python scripts/client_demo.py --server-url {args.server_url} --machine-id {args.machine_id} --password {args.password}")
         print("\n")
         
     finally:
